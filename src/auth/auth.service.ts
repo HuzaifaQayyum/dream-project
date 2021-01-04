@@ -146,12 +146,12 @@ export class AuthService {
     }
 
     async verifyPhoneNumber(req: CustomRequest, verifyNumberDto: VerifyNumberDto) {
-        const number = parsePhoneNumber(verifyNumberDto.number);
+        const recievedNumber = parsePhoneNumber(verifyNumberDto.number);
         const { user } = req;
+        const userNumber = parsePhoneNumber(user.phone.countryCode + user.phone.number);
 
         if (!
-            (user.phone.number === number.nationalNumber.toString()) ||
-            (!(user.phone.countryCode === '+' + number.countryCallingCode.toString()))
+            (userNumber.toString() === recievedNumber.toString())
         )
             throw new UnprocessableEntityException('Phone number does not match.');
 
@@ -163,7 +163,7 @@ export class AuthService {
             numberVerificationCode: undefined
         }).save();
 
-        return { message: 'number verified.'};
+        return { message: 'number verified.' };
     }
 
 }
