@@ -21,12 +21,15 @@ export class JwtBearerTokenMiddleware implements NestMiddleware {
 
         const authorizationHeader = req.headers['authorization'] && req.headers['authorization'].split(' ');
         if (authorizationHeader && authorizationHeader.length === 2) {
-            const decoded_token: BearerTokenInterface | null = await this.jwtService.verifyAsync(authorizationHeader[1]).catch(_ => null);
-            if (decoded_token) { 
-                const user = await this.User.findById(decoded_token._id);
-                if (!user) throw new UnauthorizedException();
-                req.user = user;
+            let decoded_token: BearerTokenInterface;
+            try { 
+                decoded_token = await this.jwtService.verifyAsync(authorizationHeader[1]);
+            } catch { 
+                throw new UnauthorizedException('Invalid token recieved.');
             }
+            
+            if (decoded_token)
+                req.user = await this.User.findById(decoded_token._id).catch(_ => null);
         }
         
         return next();

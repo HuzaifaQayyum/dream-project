@@ -9,13 +9,13 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { VerifyEmailDto } from './dto/verify-account.dto';
-import { HttpException, UnprocessableEntityException } from '@nestjs/common/exceptions';
+import { ForbiddenException, HttpException, UnprocessableEntityException } from '@nestjs/common/exceptions';
 import { LoginDto } from './dto/login.dto';
-import { ResendEmailVerificationCodeDto } from './dto/resend_email_verificationcode.dto';
 import { SendNumberVerificationCodeDto } from './dto/send_phone_verificationcode.dto';
 import { SmsCallService } from '../shared/services/sms_call.service';
-import { parsePhoneNumber } from 'libphonenumber-js';
+import { parsePhoneNumber, PhoneNumber } from 'libphonenumber-js';
 import { BearerTokenInterface } from 'src/shared/interfaces/bearer-token-payload.interface';
+import { AuthenticatedResponse, ExtraResponseProps, MessageResponse } from './interfaces/responses.interface';
 
 
 export enum NextSteps {
@@ -35,47 +35,21 @@ export class AuthService {
         private readonly mailerService: MailerService,
         private readonly smsCallService: SmsCallService) { }
 
-    private generateVerificationCode() {
-        return Math.floor(100000 + Math.random() * 900000);
-    }
 
-    async createUser(signupDto: SignupDto) {
-        const user = new this.User({
-            username: signupDto.username,
-            email: signupDto.email,
-            password: await bcrypt.hash(signupDto.password, 12),
-        });
-        await user.save();
-
-        await this.sendEmailVerificationCode(user);
-
-        return { message: 'Verification Email sent.', nextStep: NextSteps.VERIFY_EMAIL };
-    }
-
-    private authenticateUser(user: User): Promise<string> {
+    private async authenticateUser(user: User, props?: ExtraResponseProps): Promise<AuthenticatedResponse> {
         const payload: BearerTokenInterface = {
             _id: user._id
         };
 
-        return this.JwtService.signAsync(payload);
+        const response: AuthenticatedResponse = {
+            ...props,
+            emailVerified: user.emailVerified || false,
+            numberVerified: user.numberVerified || false,
+            token: await this.JwtService.signAsync(payload)
+        };
+
+        return response;
     }
-
-    async verifyEmail(verifyEmailDto: VerifyEmailDto) {
-        const user = await this.User.findOne({ email: verifyEmailDto.email, emailVerified: { $ne: true } });
-        if (!user) throw new HttpException('Invalid or Expired.', HttpStatus.FORBIDDEN);
-
-        const verificationCodeMatch = await bcrypt.compare(verifyEmailDto.verificationCode, user.emailVerificationCode);
-        if (!verificationCodeMatch) throw new NotFoundException('Invalid or Expired or already used code.');
-
-        await user.set({
-            userID: user._id,
-            emailVerified: true,
-            emailVerificationCode: undefined
-        }).save()
-
-        return this.authenticateUser(user)
-    }
-
 
     private async sendEmailVerificationCode(user: User): Promise<void> {
         const verificationCode = this.generateVerificationCode().toString();
@@ -90,13 +64,52 @@ export class AuthService {
         });
     }
 
+    private generateVerificationCode() {
+        return Math.floor(100000 + Math.random() * 900000);
+    }
+
+    async createUser(signupDto: SignupDto) {
+        const user = new this.User({
+            username: signupDto.username,
+            email: signupDto.email,
+            password: await bcrypt.hash(signupDto.password, 12),
+        });
+        await user.save();
+
+        await this.sendEmailVerificationCode(user);
+
+        return this.authenticateUser(user, { nextStep: NextSteps.VERIFY_EMAIL, message: 'Verification Email sent.' });
+    }
+
+    resendEmailVerificationCode(request: CustomRequest): MessageResponse {
+        const { user } = request;
+
+        this.sendEmailVerificationCode(user);
+        return { message: 'Check your email address.', nextStep: NextSteps.VERIFY_EMAIL };
+    }
+
+    async verifyEmail(request: CustomRequest, verifyEmailDto: VerifyEmailDto) {
+        const { user } = request;
+
+        const verificationCodeMatch = await bcrypt.compare(verifyEmailDto.verificationCode, user.emailVerificationCode);
+        if (!verificationCodeMatch) throw new NotFoundException('Invalid,Expired or already used code.');
+
+        await user.set({
+            emailVerified: true,
+            emailVerificationCode: undefined
+        }).save()
+
+        return this.authenticateUser(user)
+    }
+
+
     async login(loginDto: LoginDto) {
         const user = await this.User.findOne({ email: loginDto.email });
         if (!user) throw new UnauthorizedException('Invalid credentials');
 
         if (!user.emailVerified) {
             await this.sendEmailVerificationCode(user);
-            return { message: 'verification mail sent', nextStep: NextSteps.VERIFY_EMAIL };
+            return this.authenticateUser(user, { nextStep: NextSteps.VERIFY_EMAIL, message: 'Check your email for verification code.' });
         }
 
         const passMatch = await bcrypt.hash(loginDto.password, user.password);
@@ -105,55 +118,51 @@ export class AuthService {
         return this.authenticateUser(user);
     }
 
-    async resendEmailVerificationCode(resendEmailVerificationCodeDto: ResendEmailVerificationCodeDto) {
-        const user = await this.User.findOne({ email: resendEmailVerificationCodeDto.email, emailVerified: { $ne: true } });
-        if (!user)
-            throw new UnprocessableEntityException('Invalid, Already used or Expired Email.');
 
-        this.sendEmailVerificationCode(user);
-        return { message: 'Check your email address.', nextStep: NextSteps.VERIFY_EMAIL };
-    }
+    private async sendVerificationCodetoPhone(user: User, number: PhoneNumber, saveUser = false) {
+        let verificationCode = this.generateVerificationCode().toString();
+        while (await bcrypt.compare(verificationCode, user.numberVerificationCode))
+            verificationCode = this.generateVerificationCode().toString();
 
-    private async sendVerificationCodetoPhone(user: User) {
-        const number = parsePhoneNumber(user.phone.countryCode + user.phone.number);
-        const verificationCode = this.generateVerificationCode().toString();
-
-        await user.set({
+        user.set({
+            phone: {
+                countryCode: `+${number.countryCallingCode}`,
+                number: number.nationalNumber.toString()
+            },
             numberVerificationCode: await bcrypt.hash(verificationCode, 12)
-        }).save();
+        });
+        if (saveUser)
+            await user.save();
 
         this.smsCallService.sendMessage({
             from: '+12025195818',
             to: number.formatInternational(),
             body: `Your verification code is ${verificationCode}`
-        });
+        }).catch(e => console.log(e));
     }
 
     async requestPhoneVerificationCode(req: CustomRequest, sendPhoneVerificationCodeDto: SendNumberVerificationCodeDto) {
-        const number = parsePhoneNumber(sendPhoneVerificationCodeDto.number);
         const { user } = req;
+        const recievedNumber = parsePhoneNumber(sendPhoneVerificationCodeDto.number);
 
-        await user.set({
+        const numberAlreadyUsed = await this.User.exists({
+            _id: { $ne: user._id },
             phone: {
-                countryCode: `+${number.countryCallingCode}`,
-                number: number.nationalNumber
+                countryCode: '+' + recievedNumber.countryCallingCode,
+                number: recievedNumber.nationalNumber.toString()
             }
-        }).save();
+        });
+        if (numberAlreadyUsed)
+            throw new UnprocessableEntityException(`Number already used to verify a different account.`);
 
-        this.sendVerificationCodetoPhone(user);
+        await this.sendVerificationCodetoPhone(user, recievedNumber, true);
 
-        return { message: 'check your phone number', nextStep: NextSteps.VERIFY_NUMBER };
+        return { nextStep: NextSteps.VERIFY_NUMBER, message: 'Verification code sent to your number.' };
     }
 
-    async verifyPhoneNumber(req: CustomRequest, verifyNumberDto: VerifyNumberDto) {
-        const recievedNumber = parsePhoneNumber(verifyNumberDto.number);
-        const { user } = req;
-        const userNumber = parsePhoneNumber(user.phone.countryCode + user.phone.number);
 
-        if (!
-            (userNumber.toString() === recievedNumber.toString())
-        )
-            throw new UnprocessableEntityException('Phone number does not match.');
+    async verifyPhoneNumber(req: CustomRequest, verifyNumberDto: VerifyNumberDto) {
+        const { user } = req;
 
         const verificationCodeMatch = await bcrypt.compare(verifyNumberDto.verificationCode, user.numberVerificationCode);
         if (!verificationCodeMatch) throw new NotFoundException('Expired or already used verfication code.');
@@ -163,7 +172,6 @@ export class AuthService {
             numberVerificationCode: undefined
         }).save();
 
-        return { message: 'number verified.' };
+        return this.authenticateUser(user);
     }
-
 }
