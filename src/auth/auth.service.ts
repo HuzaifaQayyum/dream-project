@@ -15,7 +15,7 @@ import { SendNumberVerificationCodeDto } from './dto/send_phone_verificationcode
 import { SmsCallService } from '../shared/services/sms_call.service';
 import { parsePhoneNumber, PhoneNumber } from 'libphonenumber-js';
 import { BearerTokenInterface } from 'src/shared/interfaces/bearer-token-payload.interface';
-import { AuthenticatedResponse, ExtraResponseProps, MessageResponse } from './interfaces/responses.interface';
+import { AuthenticatedResponse, MessageResponse } from './interfaces/responses.interface';
 
 
 export enum NextSteps {
@@ -36,7 +36,7 @@ export class AuthService {
         private readonly smsCallService: SmsCallService) { }
 
 
-    private async authenticateUser(user: User, props?: ExtraResponseProps): Promise<AuthenticatedResponse> {
+    private async authenticateUser(user: User, props?: MessageResponse): Promise<AuthenticatedResponse> {
         const payload: BearerTokenInterface = {
             _id: user._id
         };
@@ -119,23 +119,17 @@ export class AuthService {
     }
 
 
-    private async sendVerificationCodetoPhone(user: User, number: PhoneNumber, saveUser = false) {
+    private async createUniqueNumVerificationCode(user: User) { 
         let verificationCode = this.generateVerificationCode().toString();
 
         if (user.numberVerificationCode)
             while (await bcrypt.compare(verificationCode, user.numberVerificationCode))
                 verificationCode = this.generateVerificationCode().toString();
 
-        user.set({
-            phone: {
-                countryCode: `+${number.countryCallingCode}`,
-                number: number.nationalNumber.toString()
-            },
-            numberVerificationCode: await bcrypt.hash(verificationCode, 12)
-        });
-        if (saveUser)
-            await user.save();
+        return verificationCode;
+    }
 
+    private async sendNumberVerificationCode(user: User, number: PhoneNumber, verificationCode: string) {
         this.smsCallService.sendMessage({
             from: '+12025195818',
             to: number.formatInternational(),
@@ -143,22 +137,32 @@ export class AuthService {
         }).catch(e => console.log(e));
     }
 
-    async requestPhoneVerificationCode(req: CustomRequest, sendPhoneVerificationCodeDto: SendNumberVerificationCodeDto) {
-        const { user } = req;
-        const recievedNumber = parsePhoneNumber(sendPhoneVerificationCodeDto.number);
-
+    private async validateNumberUniqueness(user: User, number: PhoneNumber) { 
         const numberAlreadyUsed = await this.User.exists({
             _id: { $ne: user._id },
             phone: {
-                countryCode: '+' + recievedNumber.countryCallingCode,
-                number: recievedNumber.nationalNumber.toString()
+                countryCode: '+' + number.countryCallingCode,
+                number: number.nationalNumber.toString()
             }
         });
         if (numberAlreadyUsed)
             throw new UnprocessableEntityException(`Number already used to verify a different account.`);
+    }
 
+    async requestPhoneVerificationCode(req: CustomRequest, sendPhoneVerificationCodeDto: SendNumberVerificationCodeDto) {
+        const { user } = req;
+        const recievedNumber = parsePhoneNumber(sendPhoneVerificationCodeDto.number);
+        await this.validateNumberUniqueness(user, recievedNumber);
 
-        await this.sendVerificationCodetoPhone(user, recievedNumber, true);
+        let verificationCode = await this.createUniqueNumVerificationCode(user);
+        await user.set({
+            phone: {
+                countryCode: `+${recievedNumber.countryCallingCode}`,
+                number: recievedNumber.nationalNumber.toString()
+            },
+            numberVerificationCode: await bcrypt.hash(verificationCode, 12)
+        }).save();
+        await this.sendNumberVerificationCode(user, recievedNumber, verificationCode);
 
         return { nextStep: NextSteps.VERIFY_NUMBER, message: 'Verification code sent to your number.' };
     }

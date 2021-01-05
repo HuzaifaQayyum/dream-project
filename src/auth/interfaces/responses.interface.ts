@@ -1,17 +1,12 @@
 import { NextSteps } from "../auth.service";
 
-export interface ExtraResponseProps {
+export interface MessageResponse {
     nextStep?: NextSteps;
     message?: string;
 }
 
-export interface AuthenticatedResponse extends ExtraResponseProps {
+export interface AuthenticatedResponse extends MessageResponse {
     token: string;
     emailVerified: boolean;
     numberVerified: boolean;
-}
-
-export interface MessageResponse { 
-    message: string,
-    nextStep?: NextSteps
 }

@@ -1,16 +1,16 @@
-import { ShouldBeLoggedIn } from './../shared/guards/should-be-loggedin.guard';
-import { VerifyNumberDto } from './dto/verify-number.dto';
-import { CustomRequest } from './../shared/interfaces/custom-request.interface';
+import { ShouldBeNumberSetGuard } from './../shared/guards/shouldbe-numberset.guard';
 import { Body, Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
-import { EmailShouldBeVerifiedGuard } from 'src/shared/guards/email-shouldbe-verified.guard';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { SendNumberVerificationCodeDto } from './dto/send_phone_verificationcode.dto';
 import { SignupDto } from './dto/signup.dto';
+import { VerifyNumberDto } from './dto/verify-number.dto';
 import { VerifyEmailDto } from './dto/verify-account.dto';
-import { NumberShouldNotbeVerified } from 'src/shared/guards/number-shouldnoybe-verfied.guard';
-import { EmailShouldNotBeVerifiedGuard } from 'src/shared/guards/email-shouldnotbe-verified.guard';
-import { ShouldNotbeLoggedIn } from 'src/shared/guards/should-notbe-loggedin.guard';
+import { CustomRequest } from './../shared/interfaces/custom-request.interface';
+import { ShouldNotBeLoggedInGuard } from 'src/shared/guards/shouldnotbe-loggedin.guard';
+import { ShouldBeLoggedInGuard } from './../shared/guards/shouldbe-loggedin.guard';
+import { ShouldBeEmailVerifiedGuard } from '../shared/guards/shouldbe-emailverified.guard';
+import { ShouldNotBeNumberVerifiedGuard } from 'src/shared/guards/shouldnotbe-numberverified.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -18,13 +18,13 @@ export class AuthController {
     constructor(private authService: AuthService) { }
 
     @Post('signup')
-    @UseGuards(ShouldNotbeLoggedIn)
+    @UseGuards(ShouldNotBeLoggedInGuard)
     async signup(@Body() signupDto: SignupDto) {
         return await this.authService.createUser(signupDto);
     }
 
     @Post('resend-email-verification-code')
-    @UseGuards(ShouldBeLoggedIn, EmailShouldNotBeVerifiedGuard)
+    @UseGuards(ShouldBeLoggedInGuard)
     @HttpCode(200)
     resendEmailVerificationCode(
         @Req() request: CustomRequest
@@ -33,7 +33,7 @@ export class AuthController {
     }
 
     @Post('verify-email')
-    @UseGuards(ShouldBeLoggedIn, EmailShouldNotBeVerifiedGuard)
+    @UseGuards(ShouldBeLoggedInGuard)
     @HttpCode(200)
     verifyEmail(
         @Req() request: CustomRequest,
@@ -43,7 +43,7 @@ export class AuthController {
     }
 
     @Post('send-number-verification-code')
-    @UseGuards(ShouldBeLoggedIn, EmailShouldBeVerifiedGuard, NumberShouldNotbeVerified)
+    @UseGuards(ShouldBeEmailVerifiedGuard, ShouldNotBeNumberVerifiedGuard)
     @HttpCode(200)
     sendPhoneVerificationCode(
         @Req() req: CustomRequest,
@@ -53,7 +53,7 @@ export class AuthController {
     }
 
     @Post('verify-number')
-    @UseGuards(EmailShouldBeVerifiedGuard, NumberShouldNotbeVerified)
+    @UseGuards(ShouldBeEmailVerifiedGuard, ShouldBeNumberSetGuard, ShouldNotBeNumberVerifiedGuard)
     @HttpCode(200)
     verifyNumber(
         @Req() req: CustomRequest,
@@ -63,7 +63,7 @@ export class AuthController {
     }
 
     @Post('login')
-    @UseGuards(ShouldNotbeLoggedIn)
+    @UseGuards(ShouldNotBeLoggedInGuard)
     @HttpCode(200)
     loginUser(
         @Body() loginDto: LoginDto

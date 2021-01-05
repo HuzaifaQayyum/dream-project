@@ -5,6 +5,6 @@ import { CustomRequest } from '../interfaces/custom-request.interface';
 export class NumberShouldNotbeVerified implements CanActivate { 
     canActivate(context: ExecutionContext): boolean { 
         const request: CustomRequest = context.getArgByIndex(0);
-        return !!request.user && (!request.user.numberVerified);
+        return !(request.user.numberVerified === true);
     }
 }
