@@ -1,7 +1,4 @@
-import { NextSteps } from "../auth.service";
-
 export interface MessageResponse {
-    nextStep?: NextSteps;
     message?: string;
 }
 

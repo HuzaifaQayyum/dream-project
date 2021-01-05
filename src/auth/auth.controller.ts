@@ -1,8 +1,10 @@
+import { EmailDto } from './dto/email.dto';
+import { NumberDto } from './dto/number.dto';
+import { EmailOrNumberDto } from './dto/email-or-number.dto';
 import { ShouldBeNumberSetGuard } from './../shared/guards/shouldbe-numberset.guard';
 import { Body, Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { SendNumberVerificationCodeDto } from './dto/send_phone_verificationcode.dto';
 import { SignupDto } from './dto/signup.dto';
 import { VerifyNumberDto } from './dto/verify-number.dto';
 import { VerifyEmailDto } from './dto/verify-account.dto';
@@ -47,9 +49,9 @@ export class AuthController {
     @HttpCode(200)
     sendPhoneVerificationCode(
         @Req() req: CustomRequest,
-        @Body() sendPhoneVerificationCodeDto: SendNumberVerificationCodeDto
+        @Body() numberDto: NumberDto
     ) {
-        return this.authService.requestPhoneVerificationCode(req, sendPhoneVerificationCodeDto);
+        return this.authService.requestPhoneVerificationCode(req, numberDto);
     }
 
     @Post('verify-number')
@@ -71,4 +73,30 @@ export class AuthController {
         return this.authService.login(loginDto);
     }
 
+    @Post('password-reset-options')
+    @UseGuards(ShouldNotBeLoggedInGuard)
+    @HttpCode(200)
+    checkPasswordResetOptions(
+        @Body() emailOrNumberDto: EmailOrNumberDto
+    ) { 
+        return this.authService.checkForPasswordResetOptions(emailOrNumberDto);
+    }
+
+    @Post('send-password-reset-code-to-email')
+    @UseGuards(ShouldNotBeLoggedInGuard)
+    @HttpCode(200)
+    sendPasswordResetCodeToEmail(
+        @Body() emailDto: EmailDto
+    ) { 
+        return this.sendPasswordResetCodeToEmail(emailDto);
+    }
+
+    @Post('send-password-reset-code-to-number')
+    @UseGuards(ShouldNotBeLoggedInGuard)
+    @HttpCode(200)
+    sendPasswordResetCodeToNumber(
+        @Body() numberDto: NumberDto
+    ) { 
+        return this.sendPasswordResetCodeToNumber(numberDto);
+    }
 }

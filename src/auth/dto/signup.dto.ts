@@ -1,6 +1,6 @@
 export class SignupDto { 
     username: string;
-    email: string;
     password: string;
+    email: string;
     verified?: boolean;
 }

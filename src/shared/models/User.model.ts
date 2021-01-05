@@ -1,8 +1,9 @@
 import { Prop, raw, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { Document } from 'mongoose';
+import { UserPhone } from "../interfaces/user-phone.interface";
 
 @Schema()
-export class User extends Document { 
+export class User extends Document {
     @Prop()
     username: string;
 
@@ -28,10 +29,7 @@ export class User extends Document {
         countryCode: String,
         number: String
     }))
-    phone: {
-        countryCode: string;
-        number: string;
-    };
+    phone: UserPhone;
 
     @Prop()
     numberVerified: boolean
