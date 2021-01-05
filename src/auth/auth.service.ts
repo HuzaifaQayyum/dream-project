@@ -121,8 +121,10 @@ export class AuthService {
 
     private async sendVerificationCodetoPhone(user: User, number: PhoneNumber, saveUser = false) {
         let verificationCode = this.generateVerificationCode().toString();
-        while (await bcrypt.compare(verificationCode, user.numberVerificationCode))
-            verificationCode = this.generateVerificationCode().toString();
+
+        if (user.numberVerificationCode)
+            while (await bcrypt.compare(verificationCode, user.numberVerificationCode))
+                verificationCode = this.generateVerificationCode().toString();
 
         user.set({
             phone: {
@@ -154,6 +156,7 @@ export class AuthService {
         });
         if (numberAlreadyUsed)
             throw new UnprocessableEntityException(`Number already used to verify a different account.`);
+
 
         await this.sendVerificationCodetoPhone(user, recievedNumber, true);
 

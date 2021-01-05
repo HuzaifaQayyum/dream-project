@@ -43,7 +43,7 @@ export class AuthController {
     }
 
     @Post('send-number-verification-code')
-    @UseGuards(EmailShouldBeVerifiedGuard, NumberShouldNotbeVerified)
+    @UseGuards(ShouldBeLoggedIn, EmailShouldBeVerifiedGuard, NumberShouldNotbeVerified)
     @HttpCode(200)
     sendPhoneVerificationCode(
         @Req() req: CustomRequest,
