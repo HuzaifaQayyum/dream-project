@@ -1,262 +1,110 @@
-import { NumberDto } from './dto/number.dto';
-import { EmailDto } from './dto/email.dto';
-import { EmailOrNumberDto } from './dto/email-or-number.dto';
-import { PasswordResetOption } from './interfaces/password-reset-options.interface';
-import { VerifyNumberDto } from './dto/verify-number.dto';
-import { CustomRequest } from './../shared/interfaces/custom-request.interface';
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { SignupDto } from './dto/signup.dto';
-import { User } from '../shared/models/User.model';
-import { MailerService } from '@nestjs-modules/mailer';
+import { ForbiddenException, Injectable } from '@nestjs/common';
+import { CreateUserDto } from '../user/dto/create-user.dto';
+import { SignupLoginService } from '../user/services/signup-login.service';
+import { User } from '../user/models/User.model';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
-import { VerifyEmailDto } from './dto/verify-account.dto';
-import { UnprocessableEntityException } from '@nestjs/common/exceptions';
-import { LoginDto } from './dto/login.dto';
-import { SmsCallService } from '../shared/services/sms_call.service';
-import { parsePhoneNumberFromString, PhoneNumber } from 'libphonenumber-js';
-import { BearerTokenInterface } from 'src/shared/interfaces/bearer-token-payload.interface';
-import { AuthenticatedResponse, MessageResponse } from './interfaces/responses.interface';
-import { UserPhone } from '../shared/interfaces/user-phone.interface';
-
+import { BearerTokenPayloadInterface } from './interfaces/bearer-token-payload.interface';
+import { AuthenticationResponse } from './interfaces/authentication-response.interface';
+import { MessageResponse } from './interfaces/message-response.interface';
+import { VerificationCodeDto } from '../user/dto/verification-code.dto';
+import { UserNumberService } from '../user/services/user-number.service';
+import { NumberDto } from '../user/dto/number.dto';
+import { ForgotPasswordService } from '../user/services/forgot-password.service';
+import { EmailOrNumberDto } from '../user/dto/email-or-number.dto';
+import { EmailDto } from '../user/dto/email.dto';
+import { PasswordResetPossibleOptions } from '../user/interfaces/password-reset-possible-options.interface';
+import { ValidatePasswordResetCodeDto } from '../user/dto/validate-password-reset-code.dto';
+import { ChangePasswordDto } from '../user/dto/change-password.dto';
+import { LoginDto } from '../user/dto/login.dto';
+import { InvalidCredentialsException } from '../user/exceptions/invalid-credentials.exception';
+import { EmailNotVerifiedException } from '../user/exceptions/email-not-verified.exception';
 
 @Injectable()
 export class AuthService {
 
-    constructor(
-        @InjectModel(User.name) private readonly User: Model<User>,
-        private readonly JwtService: JwtService,
-        private readonly mailerService: MailerService,
-        private readonly smsCallService: SmsCallService) { }
+  constructor(
+    private readonly signupLoginService: SignupLoginService,
+    private readonly numberVerificationService: UserNumberService,
+    private readonly forgotPasswordService: ForgotPasswordService,
+    private jwtService: JwtService
+    ) {
+  }
 
+  private async authenticateUser(user: User, extraProps?: MessageResponse | {[key: string]: any}, payload: BearerTokenPayloadInterface={ _id: user._id }): Promise<AuthenticationResponse> {
 
-    private async authenticateUser(user: User, props?: MessageResponse): Promise<AuthenticatedResponse> {
-        const payload: BearerTokenInterface = {
-            _id: user._id
-        };
+    return {
+      ...extraProps,
+      token: await this.jwtService.signAsync(payload),
+      emailVerified: user.emailVerified || false,
+      numberVerified: user.numberVerified || false
+    };
+  }
 
-        const response: AuthenticatedResponse = {
-            ...props,
-            emailVerified: user.emailVerified || false,
-            numberVerified: user.numberVerified || false,
-            token: await this.JwtService.signAsync(payload)
-        };
+  async signup(createUserDto: CreateUserDto) {
+    const user = await this.signupLoginService.createNewUser(createUserDto);
+    return this.authenticateUser(user, { message: `Email verification code sent, please verify your account first.` });
+  }
 
-        return response;
+  async login(loginDto: LoginDto): Promise<AuthenticationResponse> {
+    let user: User;
+    try {
+      user = await this.signupLoginService.login(loginDto);
+    } catch (e) {
+      if (e instanceof InvalidCredentialsException)
+        throw new ForbiddenException(`Invalid Login credentials received`);
+      else if(e instanceof EmailNotVerifiedException)
+        return this.authenticateUser(user, { message: `Email verification code sent, please verify your account first.` });
     }
 
+    return this.authenticateUser(user);
+  }
 
-    private async sendEmailVerificationCode(user: User): Promise<void> {
-        const verificationCode = this.generateVerificationCode().toString();
-        await user.set({
-            emailVerificationCode: await bcrypt.hash(verificationCode, 12)
-        }).save();
+  async resendEmailVerificationCode(user: User): Promise<MessageResponse> {
+    await this.signupLoginService.resendEmailVerificationCode(user);
+    return { message: `Email verification code resent to your email inbox.` };
+  }
 
-        this.mailerService.sendMail({
-            from: 'procker@admin.com',
-            to: user.email,
-            text: `verification code is ${verificationCode}.`
-        })
-    }
+  async verifyEmail(user: User, verificationCodeDto: VerificationCodeDto) {
+    await this.signupLoginService.verifyEmail(user, verificationCodeDto);
+    return this.authenticateUser(user);
+  }
 
-    private generateVerificationCode() {
-        return Math.floor(100000 + Math.random() * 900000);
-    }
+  async setUserNumber(user: User, numberDto: NumberDto): Promise<MessageResponse> {
+    await this.numberVerificationService.setUserPhoneNumber(user, numberDto);
+    return { message: `Number verification code sent to your number` };
+  }
 
-    async createUser(signupDto: SignupDto) {
-        const user = new this.User({
-            username: signupDto.username,
-            email: signupDto.email,
-            password: await bcrypt.hash(signupDto.password, 12),
-        });
-        await user.save();
+  async verifyNumber(user: User, verificationCodeDto): Promise<MessageResponse> {
+    await this.numberVerificationService.verifyUserNumber(user, verificationCodeDto);
+    return { message: `Number verified successfully.` };
+  }
 
-        await this.sendEmailVerificationCode(user);
+  async getAvailablePasswordResetOptions(emailOrNumberDto: EmailOrNumberDto): Promise<PasswordResetPossibleOptions> {
+    const availablePasswordResetOptions = await this.forgotPasswordService.getPossiblePasswordReset(emailOrNumberDto);
+    if (JSON.stringify(availablePasswordResetOptions) === '{}')
+      throw new ForbiddenException(`Unfortunately, there is nothing which can assist you in recovering your forgotten password.`);
 
-        return this.authenticateUser(user, { message: 'Verification Email sent.' });
-    }
+    return availablePasswordResetOptions;
+  }
 
-    resendEmailVerificationCode(request: CustomRequest): MessageResponse {
-        const { user } = request;
+  async mailPasswordResetCode(emailDto: EmailDto): Promise<MessageResponse> {
+    await this.forgotPasswordService.mailPasswordResetCode(emailDto);
+    return { message: `Password reset code sent to your email inbox.` };
+  }
 
-        this.sendEmailVerificationCode(user);
-        return { message: 'Check your email address.' };
-    }
+  async smsPasswordResetCode(numberDto: NumberDto): Promise<MessageResponse> {
+    await this.forgotPasswordService.smsPasswordResetCode(numberDto);
+    return { message: `Password reset code sent to your number.` };
+  }
 
-    async verifyEmail(request: CustomRequest, verifyEmailDto: VerifyEmailDto) {
-        const { user } = request;
+  async validatePasswordResetCode(validatePasswordResetCodeDto: ValidatePasswordResetCodeDto) {
+    const user = await this.forgotPasswordService.validatePasswordResetCode(validatePasswordResetCodeDto);
+    return this.authenticateUser(user, { }, { _id: user._id, loginPrevented: true });
+  }
 
-        const verificationCodeMatch = await bcrypt.compare(verifyEmailDto.verificationCode, user.emailVerificationCode);
-        if (!verificationCodeMatch) throw new NotFoundException('Invalid,Expired or already used code.');
-
-        await user.set({
-            emailVerified: true,
-            emailVerificationCode: undefined
-        }).save()
-
-        return this.authenticateUser(user)
-    }
-
-    private emailOrNumberFilterForFindingUser(emailOrNumber: string): { phone: UserPhone } | { email: string } {
-        const isNumber = RegExp(/^\+\d+$/).test(emailOrNumber);
-        if (isNumber) {
-            const number = parsePhoneNumberFromString(emailOrNumber);
-            return {
-                phone: {
-                    countryCode: '+' + number.countryCallingCode,
-                    number: number.nationalNumber.toString()
-                }
-            }
-        }
-
-        return { email: emailOrNumber };
-    }
-
-    async login(loginDto: LoginDto) {
-        const filter = this.emailOrNumberFilterForFindingUser(loginDto.emailOrNumber);
-        const user = await this.User.findOne(filter);
-        if (!user)
-            throw new UnauthorizedException('Invalid credentials');
-
-        if (!user.emailVerified) {
-            await this.sendEmailVerificationCode(user);
-            return this.authenticateUser(user, { message: 'Check your email for verification code.' });
-        }
-
-        const passMatch = await bcrypt.hash(loginDto.password, user.password);
-        if (!passMatch) throw new UnauthorizedException('Invalid credentials');
-
-        return this.authenticateUser(user);
-    }
-
-
-    private async createUniqueNumVerificationCode(user: User) {
-        let verificationCode = this.generateVerificationCode().toString();
-
-        if (user.numberVerificationCode)
-            while (await bcrypt.compare(verificationCode, user.numberVerificationCode))
-                verificationCode = this.generateVerificationCode().toString();
-
-        return verificationCode;
-    }
-
-    private generateUserPhoneFilter(number: PhoneNumber): UserPhone { 
-        return {
-            countryCode: '+' + number.countryCallingCode,
-            number: number.nationalNumber.toString()
-        }
-    }
-
-    private async validateNumberUniqueness(user: User, number: PhoneNumber) {
-        const numberAlreadyUsed = await this.User.exists({
-            _id: { $ne: user._id },
-            phone: this.generateUserPhoneFilter(number)
-        });
-        if (numberAlreadyUsed)
-            throw new UnprocessableEntityException(`Number already used to verify a different account.`);
-    }
-
-    async requestPhoneVerificationCode(req: CustomRequest, numberDto: NumberDto) {
-        const { user } = req;
-        const recievedNumber = parsePhoneNumberFromString(numberDto.number);
-        await this.validateNumberUniqueness(user, recievedNumber);
-
-        let verificationCode = await this.createUniqueNumVerificationCode(user);
-        await user.set({
-            phone: {
-                countryCode: `+${recievedNumber.countryCallingCode}`,
-                number: recievedNumber.nationalNumber.toString()
-            },
-            numberVerificationCode: await bcrypt.hash(verificationCode, 12)
-        }).save();
-
-        this.smsCallService.sendMessage({
-            to: recievedNumber.formatInternational(),
-            body: `Your verification code is ${verificationCode}`
-        });
-
-        return { message: 'Verification code sent to your number.' };
-    }
-
-
-    async verifyPhoneNumber(req: CustomRequest, verifyNumberDto: VerifyNumberDto) {
-        const { user } = req;
-
-        const verificationCodeMatch = await bcrypt.compare(verifyNumberDto.verificationCode, user.numberVerificationCode);
-        if (!verificationCodeMatch)
-            throw new NotFoundException('Expired or already used verfication code.');
-
-        await user.set({
-            numberVerified: true,
-            numberVerificationCode: undefined
-        }).save();
-
-        return this.authenticateUser(user);
-    }
-
-    private allPossibleResetOptions(user: User): PasswordResetOption {
-        const availablePasswordResetOptions: PasswordResetOption = {};
-        if (user.emailVerified)
-            availablePasswordResetOptions.email = user.email;
-        if (user.numberVerified)
-            availablePasswordResetOptions.phone = parsePhoneNumberFromString(user.phone.countryCode + user.phone.number).toString();
-
-        return availablePasswordResetOptions;
-    }
-
-    async checkForPasswordResetOptions(forgotPasswordDto: EmailOrNumberDto) {
-        const filter = this.emailOrNumberFilterForFindingUser(forgotPasswordDto.emailOrNumber);
-
-        const user = await this.User.findOne(filter);
-        if (!user)
-            throw new NotFoundException(`User does not exists anymore, this is all we know :(`);
-
-        return this.allPossibleResetOptions(user);
-    }
-
-    async sendPasswordResetCodeThroughEmail(emailDto: EmailDto): Promise<MessageResponse> {
-        const user = await this.User.findOne({ email: emailDto.email, emailVerified: true });
-        if (!user)
-            throw new NotFoundException(`User does not exists anymore. This is all we know :(`);
-
-        const verificationCode = this.generateVerificationCode().toString();
-        await user.set({
-            passwordResetCode: await bcrypt.hash(verificationCode, 12)
-        }).save();
-
-        this.mailerService.sendMail({
-            from: 'forgetpassword@pockerteam.com',
-            to: user.email,
-            text: `Verification Code for password reset is ${verificationCode}`
-        });
-
-        return { message: `Password reset code sent to your email inbox.` };
-    }
-
-    async sendPasswordResetCodeThroughNumber(numberDto: NumberDto): Promise<MessageResponse> {
-        const number = parsePhoneNumberFromString(numberDto.number);
-
-        const user = await this.User.findOne({ 
-            phone: this.generateUserPhoneFilter(number),
-            numberVerified: true
-         });
-
-        if (!user)
-            throw new NotFoundException(`User does not exists anymore. This is all we know :(`);
-
-        const verificationCode = this.generateVerificationCode().toString();
-        await user.set({
-            passwordResetCode: await bcrypt.hash(verificationCode, 12)
-        }).save();
-
-        this.smsCallService.sendMessage({
-            to: number.formatInternational(),
-            body: `Verification Code for password reset is ${verificationCode}`
-        });
-
-        return { message: `Password reset code sent to your email inbox.` };
-    }
+  async changePassword(user: User, newPasswordDto: ChangePasswordDto) {
+    await this.forgotPasswordService.changePassword(user, newPasswordDto);
+    return this.authenticateUser(user);
+  }
 
 }

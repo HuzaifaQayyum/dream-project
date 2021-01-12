@@ -1,0 +1,1 @@
+console.log(require('jsonwebtoken').decode('eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJfaWQiOiI1ZmY4ODUyYzJhODUyNjQyYWNhYzNlZmMiLCJpYXQiOjE2MTAxMjI1NDB9.uq_HpZOewL9ccZHZy-C1zXldxJRJ0wNp9FdWx5BDmSw'))

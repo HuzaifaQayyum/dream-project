@@ -1,102 +1,52 @@
-import { EmailDto } from './dto/email.dto';
-import { NumberDto } from './dto/number.dto';
-import { EmailOrNumberDto } from './dto/email-or-number.dto';
-import { ShouldBeNumberSetGuard } from './../shared/guards/shouldbe-numberset.guard';
-import { Body, Controller, HttpCode, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LoginDto } from './dto/login.dto';
-import { SignupDto } from './dto/signup.dto';
-import { VerifyNumberDto } from './dto/verify-number.dto';
-import { VerifyEmailDto } from './dto/verify-account.dto';
-import { CustomRequest } from './../shared/interfaces/custom-request.interface';
-import { ShouldNotBeLoggedInGuard } from 'src/shared/guards/shouldnotbe-loggedin.guard';
-import { ShouldBeLoggedInGuard } from './../shared/guards/shouldbe-loggedin.guard';
-import { ShouldBeEmailVerifiedGuard } from '../shared/guards/shouldbe-emailverified.guard';
-import { ShouldNotBeNumberVerifiedGuard } from 'src/shared/guards/shouldnotbe-numberverified.guard';
+import { CreateUserDto } from '../user/dto/create-user.dto';
+import { User as UserModel } from '../user/models/User.model'
+import { VerificationCodeDto } from '../user/dto/verification-code.dto';
+import { NumberDto } from '../user/dto/number.dto';
 
 @Controller('auth')
 export class AuthController {
 
-    constructor(private authService: AuthService) { }
+  constructor(private readonly authService: AuthService) {
+  }
 
-    @Post('signup')
-    @UseGuards(ShouldNotBeLoggedInGuard)
-    async signup(@Body() signupDto: SignupDto) {
-        return await this.authService.createUser(signupDto);
-    }
+  @Post('signup')
+  signup(
+    @Body() createUserDto: CreateUserDto
+  ) {
+    this.authService.signup(createUserDto);
+  }
 
-    @Post('resend-email-verification-code')
-    @UseGuards(ShouldBeLoggedInGuard)
-    @HttpCode(200)
-    resendEmailVerificationCode(
-        @Req() request: CustomRequest
-    ) {
-        return this.authService.resendEmailVerificationCode(request);
-    }
+  @Post('resend-email-verification-code')
+  resendEmailVerificationCode(
+    user: UserModel
+  ) {
+    return this.authService.resendEmailVerificationCode(user);
+  }
 
-    @Post('verify-email')
-    @UseGuards(ShouldBeLoggedInGuard)
-    @HttpCode(200)
-    verifyEmail(
-        @Req() request: CustomRequest,
-        @Body() verifyEmailDto: VerifyEmailDto
-    ) {
-        return this.authService.verifyEmail(request, verifyEmailDto);
-    }
+  @Post('verify-email')
+  verifyEmail(
+    @Body() verificationCodeDto: VerificationCodeDto,
+    user: UserModel
+  ) {
+    return this.authService.verifyEmail(user, verificationCodeDto);
+  }
 
-    @Post('send-number-verification-code')
-    @UseGuards(ShouldBeEmailVerifiedGuard, ShouldNotBeNumberVerifiedGuard)
-    @HttpCode(200)
-    sendPhoneVerificationCode(
-        @Req() req: CustomRequest,
-        @Body() numberDto: NumberDto
-    ) {
-        return this.authService.requestPhoneVerificationCode(req, numberDto);
-    }
+  @Post('set-number')
+  setUserNumber(
+    @Body() numberDto: NumberDto,
+    user: UserModel
+  ) {
+    return this.authService.setUserNumber(user, numberDto);
+  }
 
-    @Post('verify-number')
-    @UseGuards(ShouldBeEmailVerifiedGuard, ShouldBeNumberSetGuard, ShouldNotBeNumberVerifiedGuard)
-    @HttpCode(200)
-    verifyNumber(
-        @Req() req: CustomRequest,
-        @Body() verifyNumberDto: VerifyNumberDto
-    ) {
-        return this.authService.verifyPhoneNumber(req, verifyNumberDto);
-    }
+  @Post('verify-number')
+  verifyNumber(
+    @Body() verificationCodeDto: VerificationCodeDto,
+   user: UserModel
+  ) {
+    return this.authService.verifyNumber(user, verificationCodeDto);
+  }
 
-    @Post('login')
-    @UseGuards(ShouldNotBeLoggedInGuard)
-    @HttpCode(200)
-    loginUser(
-        @Body() loginDto: LoginDto
-    ) {
-        return this.authService.login(loginDto);
-    }
-
-    @Post('password-reset-options')
-    @UseGuards(ShouldNotBeLoggedInGuard)
-    @HttpCode(200)
-    checkPasswordResetOptions(
-        @Body() emailOrNumberDto: EmailOrNumberDto
-    ) { 
-        return this.authService.checkForPasswordResetOptions(emailOrNumberDto);
-    }
-
-    @Post('send-password-reset-code-to-email')
-    @UseGuards(ShouldNotBeLoggedInGuard)
-    @HttpCode(200)
-    sendPasswordResetCodeToEmail(
-        @Body() emailDto: EmailDto
-    ) { 
-        return this.sendPasswordResetCodeToEmail(emailDto);
-    }
-
-    @Post('send-password-reset-code-to-number')
-    @UseGuards(ShouldNotBeLoggedInGuard)
-    @HttpCode(200)
-    sendPasswordResetCodeToNumber(
-        @Body() numberDto: NumberDto
-    ) { 
-        return this.sendPasswordResetCodeToNumber(numberDto);
-    }
 }

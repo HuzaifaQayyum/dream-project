@@ -1,15 +1,14 @@
 import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { User, UserSchema } from '../shared/models/User.model';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
+    UserModule
   ],
+  providers: [AuthService],
   controllers: [AuthController],
-  providers: [
-    AuthService
-  ]
 })
-export class AuthModule { }
+export class AuthModule {
+}

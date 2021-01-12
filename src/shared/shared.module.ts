@@ -1,26 +1,22 @@
-import { Module, Global } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { MongooseModule } from '@nestjs/mongoose';
-import { User, UserSchema } from './models/User.model';
-import { SmsCallService } from './services/sms_call.service';
+import { Global, Module } from '@nestjs/common';
+import { DatabaseModule } from './database/database.module';
+import { MailingModule } from './mailing/mailing.module';
+import { SmsCallModule } from './sms-call/sms-call.module';
+import { TokensModule } from './tokens/tokens.module';
 
 @Global()
 @Module({
-    imports: [
-        JwtModule.register({
-            secret: process.env.JwtSecret || 'hello world'
-        }),
-        MongooseModule.forFeature([
-            { name: User.name, schema: UserSchema }
-        ])
-    ],
-    providers: [
-        SmsCallService
-    ],
-    exports: [
-        SmsCallService,
-        JwtModule,
-        MongooseModule
-    ]
+  imports: [
+    DatabaseModule,
+    MailingModule,
+    SmsCallModule,
+    TokensModule
+  ],
+  exports: [
+    DatabaseModule,
+    MailingModule,
+    SmsCallModule,
+    TokensModule
+  ]
 })
 export class SharedModule { }

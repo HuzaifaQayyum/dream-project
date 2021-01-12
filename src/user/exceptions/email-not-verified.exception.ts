@@ -1,0 +1,1 @@
+export class EmailNotVerifiedException extends Error { }
